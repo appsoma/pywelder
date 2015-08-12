@@ -31,8 +31,11 @@ class KafkaThread(threading.Thread):
 		self.topic = kafka.topics[self.topic_name]
 		self.consumer = self.topic.get_simple_consumer( "kafka_websocket" )
 
-		# SKIP all data up to now.
-		self.consumer.reset_offsets( [ (v, -1) for k,v in self.topic.partitions.items() ] )
+		# ACB: pykafka fails miserably if you try to reset offsets to head and there is no offset
+		offsets = set([ res.offset[0] for p, res in self.topic.latest_available_offsets().items() ])
+		if not (len(offsets) == 0 and offsets[0] == -1):
+			# SKIP all data up to now.
+			self.consumer.reset_offsets( [ (v, -1) for k,v in self.topic.partitions.items() ] )
 
 	def run(self):
 		print "THREAD RUN"
