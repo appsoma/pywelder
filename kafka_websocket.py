@@ -28,14 +28,20 @@ class KafkaThread(threading.Thread):
 		self.topic_name = args[1]
 		self.protocol = args[0]
 
+		print "setup topic "+self.topic_name
 		self.topic = kafka.topics[self.topic_name]
-		self.consumer = self.topic.get_simple_consumer( "kafka_websocket" )
+		self.consumer_name = "kafka_websocket"
+		print "create consumer", self.consumer_name
+		self.consumer = self.topic.get_simple_consumer( self.consumer_name )
 
+		print "reset offsets"
 		# ACB: pykafka fails miserably if you try to reset offsets to head and there is no offset
 		offsets = set([ res.offset[0] for p, res in self.topic.latest_available_offsets().items() ])
 		if not (len(offsets) == 0 and offsets[0] == -1):
 			# SKIP all data up to now.
 			self.consumer.reset_offsets( [ (v, -1) for k,v in self.topic.partitions.items() ] )
+		print "done"
+
 
 	def run(self):
 		print "THREAD RUN"
@@ -72,17 +78,29 @@ class MyServerProtocol(WebSocketServerProtocol):
 		self.query = self.http_request_params
 
 	def onMessage(self, payload, isBinary):
+		print "Got Message"
 		comm = json.loads(payload)
-		if comm["command"] == "start_follow":
+		handled = False
+		if "command" in comm:
+			print "Command=",comm["command"]
+		if comm["command"] == "subscribe":
 			self.start_follow( comm["topic"] )
-		if comm["command"] == "stop_follow":
+			handled = True
+		if comm["command"] == "unsubscribe":
 			self.stop_follow( comm["topic"] )
+			handled = True
 		if comm["command"] == "history":
 			self.history( comm["topic"], comm["offset"], comm["count"] )
-		if comm["command"] == "produce":
+			handled = True
+		if comm["command"] == "add":
 			topic = kafka.topics[comm["topic"]]
 			producer = topic.get_producer()
 			producer.produce( [ json.dumps(comm["message"]) ] )
+			handled = True
+
+		if not handled:
+			self.sendMessage("{error:\"command not understood\"}")
+
 
 	def onClose(self, wasClean, code, reason):
 		print "ON CLOSE", wasClean, code, reason
@@ -92,10 +110,10 @@ class MyServerProtocol(WebSocketServerProtocol):
 	def start_follow(self,topic_name):
 		self.kafka_threads[topic_name] = KafkaThread( args=(self,topic_name) )
 		self.kafka_threads[topic_name].start()
-	
+
 	def stop_follow(self,topic_name):
 		self.kafka_threads[topic_name].stop()
-		
+
 	def history(self,topic_name,offset,count):
 		topic = kafka.topics[topic_name]
 		consumer = topic.get_simple_consumer( "group1" )
