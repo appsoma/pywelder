@@ -25,14 +25,14 @@ class KafkaThread(threading.Thread):
 		kafka_threads.append( self )
 		super(KafkaThread, self).__init__(args=args)
 		self.stop_request = False
-		self.topic_name = args[1]
+		self.topic_id = args[1]
 		self.protocol = args[0]
 
-		print "setup topic "+self.topic_name
-		self.topic = kafka.topics[self.topic_name]
-		self.consumer_name = "kafka_websocket"
-		print "create consumer", self.consumer_name
-		self.consumer = self.topic.get_simple_consumer( self.consumer_name )
+		print "setup topic "+self.topic_id
+		self.topic = kafka.topics[self.topic_id]
+		self.consumer_group_id = "kafka_websocket"
+		print "create consumer group", self.consumer_group_id
+		self.consumer = self.topic.get_simple_consumer( self.consumer_group_id )
 
 		print "reset offsets"
 		# ACB: pykafka fails miserably if you try to reset offsets to head and there is no offset
@@ -50,7 +50,7 @@ class KafkaThread(threading.Thread):
 				message = self.consumer.consume(block=True)
 				if message:
 					ret_message = {
-						'topic': self.topic_name,
+						'topic': self.topic_id,
 						'message': json.loads(message.value)
 					}
 					self.protocol.sendMessage( json.dumps(ret_message) )
@@ -107,15 +107,15 @@ class MyServerProtocol(WebSocketServerProtocol):
 		for k,v in self.kafka_threads.items():
 			v.stop()
 
-	def start_follow(self,topic_name):
-		self.kafka_threads[topic_name] = KafkaThread( args=(self,topic_name) )
-		self.kafka_threads[topic_name].start()
+	def start_follow(self,topic_id):
+		self.kafka_threads[topic_id] = KafkaThread( args=(self,topic_id) )
+		self.kafka_threads[topic_id].start()
 
-	def stop_follow(self,topic_name):
-		self.kafka_threads[topic_name].stop()
+	def stop_follow(self,topic_id):
+		self.kafka_threads[topic_id].stop()
 
-	def history(self,topic_name,offset,count):
-		topic = kafka.topics[topic_name]
+	def history(self,topic_id,offset,count):
+		topic = kafka.topics[topic_id]
 		consumer = topic.get_simple_consumer( "group1" )
 		consumer.seek(offset,1)
 		while True:
