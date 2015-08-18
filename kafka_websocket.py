@@ -16,28 +16,31 @@ brokers = kafka_util.get_brokers()
 kafka = KafkaClient( hosts=brokers )
 
 
+
 kafka_threads = []
 
 class KafkaThread(threading.Thread):
 	def __init__(self, args):
-		print "CREATE THREAD"
+		print "CREATE THREAD", brokers
 		global kafka_threads
 		kafka_threads.append( self )
 		super(KafkaThread, self).__init__(args=args)
 		self.stop_request = False
-		self.topic_id = args[1]
+		self.topic_id = args[1].encode('utf8')
 		self.protocol = args[0]
 
+		self.inside_thread_kafka = KafkaClient( hosts=brokers )
+
 		print "setup topic "+self.topic_id
-		self.topic = kafka.topics[self.topic_id]
+		self.topic = self.inside_thread_kafka.topics[self.topic_id]
 		self.consumer_group_id = "kafka_websocket"
 		print "create consumer group", self.consumer_group_id
 		self.consumer = self.topic.get_simple_consumer( self.consumer_group_id )
 
 		print "reset offsets"
 		# ACB: pykafka fails miserably if you try to reset offsets to head and there is no offset
-		offsets = set([ res.offset[0] for p, res in self.topic.latest_available_offsets().items() ])
-		if not (len(offsets) == 0 and offsets[0] == -1):
+		offsets = list(set([ res.offset[0] for p, res in self.topic.latest_available_offsets().items() ]))
+		if not (len(offsets) == 1 and offsets[0] == -1):
 			# SKIP all data up to now.
 			self.consumer.reset_offsets( [ (v, -1) for k,v in self.topic.partitions.items() ] )
 		print "done"
@@ -81,19 +84,20 @@ class MyServerProtocol(WebSocketServerProtocol):
 		print "Got Message"
 		comm = json.loads(payload)
 		handled = False
+		topic_id = comm["topic"].encode("utf8")
 		if "command" in comm:
 			print "Command=",comm["command"]
 		if comm["command"] == "subscribe":
-			self.start_follow( comm["topic"] )
+			self.start_follow( topic_id )
 			handled = True
 		if comm["command"] == "unsubscribe":
-			self.stop_follow( comm["topic"] )
+			self.stop_follow( topic_id )
 			handled = True
 		if comm["command"] == "history":
-			self.history( comm["topic"], comm["offset"], comm["count"] )
+			self.history( topic_id, comm["offset"], comm["count"] )
 			handled = True
 		if comm["command"] == "add":
-			topic = kafka.topics[comm["topic"]]
+			topic = kafka.topics[topic_id]
 			producer = topic.get_producer()
 			producer.produce( [ json.dumps(comm["message"]) ] )
 			handled = True
@@ -142,5 +146,6 @@ if __name__ == '__main__':
 	factory.protocol = MyServerProtocol
 	reactor.listenTCP(80,factory)
 	print "Listening on 80"
+
 	reactor.run()
 	print "ENDED"
