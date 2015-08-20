@@ -84,9 +84,12 @@ class MyServerProtocol(WebSocketServerProtocol):
 		print "Got Message"
 		comm = json.loads(payload)
 		handled = False
-		topic_id = comm["topic"].encode("utf8")
 		if "command" in comm:
 			print "Command=",comm["command"]
+		if 'topic' in comm:
+			topic_id = comm["topic"].encode("utf8")
+		if comm["command"] == "ping":
+			handled = True
 		if comm["command"] == "subscribe":
 			self.start_follow( topic_id )
 			handled = True
